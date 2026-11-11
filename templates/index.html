@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dontpad - /{{ path }}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; width: 100%; overflow: hidden; font-family: monospace; }
+        #notepad {
+            width: 100%;
+            height: 100vh;
+            padding: 20px;
+            font-size: 16px;
+            line-height: 1.5;
+            border: none;
+            outline: none;
+            resize: none;
+            background-color: #fcfcfc;
+            color: #222;
+        }
+        #status {
+            position: fixed;
+            bottom: 10px;
+            right: 15px;
+            font-size: 12px;
+            color: #888;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <textarea id="notepad" placeholder="Digite seu texto aqui...">{{ content }}</textarea>
+    <div id="status">Salvo</div>
+
+    <script>
+        const textarea = document.getElementById('notepad');
+        const status = document.getElementById('status');
+        let timeout = null;
+
+        textarea.addEventListener('input', () => {
+            status.innerText = 'Salvando...';
+            clearTimeout(timeout);
+            timeout = setTimeout(saveContent, 500);
+        });
+
+        function saveContent() {
+            fetch(window.location.pathname, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: textarea.value })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    status.innerText = 'Salvo';
+                } else {
+                    status.innerText = 'Erro ao salvar!';
+                }
+            })
+            .catch(() => {
+                status.innerText = 'Erro ao salvar!';
+            });
+        }
+    </script>
+</body>
+</html>
