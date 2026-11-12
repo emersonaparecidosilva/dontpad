@@ -129,7 +129,7 @@
             border: 1px solid #ddd;
             border-radius: 4px;
             cursor: pointer;
-            opacity: 0.6;
+            opacity: 0.65;
             transition: opacity 0.2s, background-color 0.2s;
             z-index: 10;
         }
@@ -139,6 +139,13 @@
             color: #222;
         }
         #toggle-sidebar { left: 15px; }
+        #lock-btn { right: 80px; }
+        #lock-btn.is-locked {
+            color: #b45309;
+            border-color: #f59e0b;
+            background-color: #fef3c7;
+            opacity: 0.9;
+        }
         #copy-btn { right: 15px; }
         #status {
             position: absolute;
@@ -147,6 +154,67 @@
             font-size: 12px;
             color: #888;
             pointer-events: none;
+        }
+
+        /* Tela de desbloqueio por senha */
+        #lock-overlay {
+            position: absolute;
+            inset: 0;
+            background-color: #fcfcfc;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            padding: 20px;
+        }
+        #lock-box {
+            width: 100%;
+            max-width: 320px;
+            text-align: center;
+        }
+        #lock-box h3 {
+            font-size: 15px;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        #lock-box p {
+            font-size: 12px;
+            color: #777;
+            margin-bottom: 16px;
+        }
+        #unlock-input {
+            width: 100%;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            outline: none;
+        }
+        #unlock-input:focus {
+            border-color: #555;
+        }
+        #unlock-submit {
+            width: 100%;
+            padding: 9px;
+            font-family: monospace;
+            font-size: 13px;
+            background-color: #222;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #unlock-submit:hover {
+            background-color: #444;
+        }
+        #lock-error {
+            color: #d9534f;
+            font-size: 12px;
+            margin-top: 10px;
+            min-height: 16px;
         }
     </style>
 </head>
@@ -161,66 +229,120 @@
 
     <main id="main">
         <button id="toggle-sidebar" class="top-btn" title="Mostrar/Ocultar menu lateral">☰</button>
+        <button id="lock-btn" class="top-btn" title="Definir ou remover senha">Travar</button>
         <button id="copy-btn" class="top-btn" title="Copiar todo o texto">Copiar</button>
+        
         <textarea id="notepad" placeholder="Carregando..."></textarea>
         <div id="status">Carregando...</div>
+
+        <!-- Tela de senha quando a nota está protegida -->
+        <div id="lock-overlay">
+            <div id="lock-box">
+                <h3>Página Protegida</h3>
+                <p id="lock-subtitle">Digite a senha para acessar este conteúdo.</p>
+                <form id="unlock-form">
+                    <input type="password" id="unlock-input" placeholder="Senha..." required autocomplete="current-password">
+                    <button type="submit" id="unlock-submit">Desbloquear</button>
+                </form>
+                <div id="lock-error"></div>
+            </div>
+        </div>
     </main>
 
     <script>
         const textarea = document.getElementById('notepad');
         const status = document.getElementById('status');
         const copyBtn = document.getElementById('copy-btn');
+        const lockBtn = document.getElementById('lock-btn');
         const linksList = document.getElementById('links-list');
         const sidebar = document.getElementById('sidebar');
         const toggleBtn = document.getElementById('toggle-sidebar');
 
+        const lockOverlay = document.getElementById('lock-overlay');
+        const unlockForm = document.getElementById('unlock-form');
+        const unlockInput = document.getElementById('unlock-input');
+        const lockError = document.getElementById('lock-error');
+
         const currentPath = window.location.pathname.replace(/^\/+|\/+$/g, '');
         document.title = currentPath ? `Padeas - /${currentPath}` : 'Padeas';
+        
         let timeout = null;
+        let isPageLocked = false;
+
+        // Armazena a senha da sessão atual por rota
+        function getSavedPassword(path) {
+            return sessionStorage.getItem(`padeas_pwd_${path}`) || '';
+        }
+        function setSavedPassword(path, pwd) {
+            if (pwd) {
+                sessionStorage.setItem(`padeas_pwd_${path}`, pwd);
+            } else {
+                sessionStorage.removeItem(`padeas_pwd_${path}`);
+            }
+        }
+
+        function updateLockButtonUI(locked) {
+            isPageLocked = locked;
+            if (locked) {
+                lockBtn.innerText = 'Protegida';
+                lockBtn.classList.add('is-locked');
+                lockBtn.title = 'Clique para alterar ou remover a senha';
+            } else {
+                lockBtn.innerText = 'Travar';
+                lockBtn.classList.remove('is-locked');
+                lockBtn.title = 'Proteger esta página com senha';
+            }
+        }
 
         toggleBtn.addEventListener('click', () => {
             sidebar.classList.toggle('collapsed');
         });
 
-        // Excluir uma página
+        // Excluir página
         function deletePage(pathToDelete) {
             if (!confirm(`Deseja excluir permanentemente a página "/${pathToDelete}"?`)) return;
 
             fetch(`/api/index?action=delete&path=${encodeURIComponent(pathToDelete)}`, {
-                method: 'DELETE'
+                method: 'DELETE',
+                headers: { 'X-Note-Password': getSavedPassword(pathToDelete) }
             })
             .then(res => res.json())
             .then(data => {
                 if (data.status === 'success') {
+                    setSavedPassword(pathToDelete, '');
                     if (pathToDelete === currentPath) {
                         window.location.href = '/';
                     } else {
                         loadSidebarLinks();
                     }
+                } else if (data.status === 'locked') {
+                    alert('Esta página está protegida por senha. Abra e desbloqueie a página antes de excluí-la.');
                 }
             });
         }
 
-        // 1. Carrega a lista de sub-URLs para a barra lateral
+        // Carregar lista lateral
         function loadSidebarLinks() {
             fetch('/api/index?action=list')
                 .then(res => res.json())
                 .then(data => {
                     if (data.status === 'success') {
                         linksList.innerHTML = '';
-                        const paths = new Set(data.paths);
-                        
-                        if (currentPath && currentPath !== 'api/index') {
-                            paths.add(currentPath);
+                        const itemsMap = new Map();
+                        data.items.forEach(item => itemsMap.set(item.path, item.locked));
+
+                        if (currentPath && currentPath !== 'api/index' && !itemsMap.has(currentPath)) {
+                            itemsMap.set(currentPath, isPageLocked);
                         }
 
-                        Array.from(paths).sort().forEach(p => {
+                        Array.from(itemsMap.keys()).sort().forEach(p => {
+                            const locked = itemsMap.get(p);
                             const li = document.createElement('li');
                             if (p === currentPath) li.classList.add('active-item');
 
                             const a = document.createElement('a');
                             a.href = `/${p}`;
-                            a.textContent = `/${p}`;
+                            a.textContent = locked ? `🔒 /${p}` : `/${p}`;
                             a.title = `/${p}`;
 
                             const delBtn = document.createElement('button');
@@ -241,21 +363,95 @@
                 });
         }
 
-        // 2. Busca o conteúdo específico da URL atual ao abrir a página
-        fetch(`/api/index?action=get&path=${encodeURIComponent(currentPath)}`)
+        // Carregar conteúdo da nota atual
+        function loadNote(isRetry = false) {
+            fetch(`/api/index?action=get&path=${encodeURIComponent(currentPath)}`, {
+                headers: { 'X-Note-Password': getSavedPassword(currentPath) }
+            })
             .then(res => res.json())
             .then(data => {
-                textarea.value = data.content || '';
-                textarea.placeholder = 'Digite seu texto aqui...';
-                status.innerText = 'Salvo';
-                loadSidebarLinks();
+                if (data.status === 'locked') {
+                    lockOverlay.style.display = 'flex';
+                    textarea.value = '';
+                    status.innerText = 'Bloqueado';
+                    if (isRetry) {
+                        lockError.innerText = 'Senha incorreta. Tente novamente.';
+                    }
+                    unlockInput.focus();
+                    loadSidebarLinks();
+                } else if (data.status === 'success') {
+                    lockOverlay.style.display = 'none';
+                    lockError.innerText = '';
+                    textarea.value = data.content || '';
+                    textarea.placeholder = 'Digite seu texto aqui...';
+                    status.innerText = 'Salvo';
+                    updateLockButtonUI(data.locked);
+                    loadSidebarLinks();
+                }
             })
             .catch(() => {
                 textarea.placeholder = 'Digite seu texto aqui...';
                 status.innerText = 'Erro ao carregar';
             });
+        }
 
-        // 3. Salva automaticamente após 500ms sem digitar
+        // Submissão do formulário de desbloqueio
+        unlockForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const pwd = unlockInput.value;
+            setSavedPassword(currentPath, pwd);
+            unlockInput.value = '';
+            loadNote(true);
+        });
+
+        // Definir ou remover senha
+        lockBtn.addEventListener('click', () => {
+            if (isPageLocked) {
+                const action = prompt('Esta página está protegida.\n- Digite uma NOVA senha para alterar\n- Deixe em branco e clique em OK para REMOVER a senha:');
+                if (action === null) return; // Cancelado
+
+                fetch(`/api/index?action=set_password&path=${encodeURIComponent(currentPath)}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Note-Password': getSavedPassword(currentPath)
+                    },
+                    body: JSON.stringify({ new_password: action })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        setSavedPassword(currentPath, action.trim());
+                        updateLockButtonUI(data.locked);
+                        loadSidebarLinks();
+                        alert(data.locked ? 'Senha atualizada!' : 'Proteção por senha removida!');
+                    }
+                });
+            } else {
+                const newPwd = prompt('Digite uma senha para proteger esta página:');
+                if (!newPwd || !newPwd.trim()) return;
+
+                fetch(`/api/index?action=set_password&path=${encodeURIComponent(currentPath)}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Note-Password': getSavedPassword(currentPath)
+                    },
+                    body: JSON.stringify({ new_password: newPwd.trim() })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        setSavedPassword(currentPath, newPwd.trim());
+                        updateLockButtonUI(true);
+                        loadSidebarLinks();
+                        alert('Página protegida com sucesso!');
+                    }
+                });
+            }
+        });
+
+        // Auto-save
         textarea.addEventListener('input', () => {
             status.innerText = 'Salvando...';
             clearTimeout(timeout);
@@ -265,7 +461,10 @@
         function saveContent() {
             fetch(`/api/index?path=${encodeURIComponent(currentPath)}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Note-Password': getSavedPassword(currentPath)
+                },
                 body: JSON.stringify({ content: textarea.value })
             })
             .then(res => res.json())
@@ -273,6 +472,9 @@
                 if (data.status === 'success') {
                     status.innerText = 'Salvo';
                     loadSidebarLinks();
+                } else if (data.status === 'locked') {
+                    status.innerText = 'Bloqueado!';
+                    loadNote();
                 } else {
                     status.innerText = 'Erro ao salvar!';
                 }
@@ -282,7 +484,7 @@
             });
         }
 
-        // 4. Copiar conteúdo para a área de transferência
+        // Copiar
         copyBtn.addEventListener('click', () => {
             if (!textarea.value) return;
             navigator.clipboard.writeText(textarea.value).then(() => {
@@ -298,6 +500,9 @@
                 document.execCommand('copy');
             });
         });
+
+        // Inicializar
+        loadNote();
     </script>
 </body>
 </html>
