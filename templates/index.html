@@ -45,7 +45,8 @@
         });
 
         function saveContent() {
-            fetch(window.location.pathname, {
+            const currentPath = encodeURIComponent(window.location.pathname);
+            fetch(`/?path=${currentPath}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ content: textarea.value })

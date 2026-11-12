@@ -1,9 +1,9 @@
 import os
+from urllib.parse import unquote
 from flask import Flask, render_template, request, jsonify
 from pymongo import MongoClient
 
 app = Flask(__name__, template_folder="../templates")
-print('Teste')
 
 MONGO_URI = os.environ.get("MONGO_URI")
 
@@ -14,6 +14,19 @@ def get_db_collection():
     db = client["dontpad_db"]
     return db["notes"]
 
+def get_real_path(subpath):
+    # 1. Prioriza o parâmetro ?path= enviado explicitamente
+    if "path" in request.args:
+        return unquote(request.args.get("path", "")).strip("/")
+    
+    # 2. Lê os cabeçalhos internos da Vercel que guardam a URL original
+    for header in ["x-vercel-original-path", "x-invoke-path", "x-matched-path"]:
+        val = request.headers.get(header)
+        if val and not val.startswith("/api/"):
+            return unquote(val.split("?")[0]).strip("/")
+            
+    return unquote(subpath).strip("/")
+
 @app.route("/", defaults={"subpath": ""}, methods=["GET", "POST"])
 @app.route("/<path:subpath>", methods=["GET", "POST"])
 def note_handler(subpath):
@@ -22,13 +35,12 @@ def note_handler(subpath):
         if notes_collection is None:
             return jsonify({
                 "status": "error", 
-                "message": "MONGO_URI não configurada nas variáveis da Vercel."
+                "message": "MONGO_URI não configurada."
             }), 500
 
-        # Captura o caminho real enviado pelo rewrite do vercel.json
-        path = request.args.get("path", subpath).strip("/")
+        path = get_real_path(subpath)
 
-        # POST: Salva ou atualiza a nota específica daquele path
+        # POST: Salva ou atualiza a nota daquele caminho
         if request.method == "POST":
             data = request.get_json() or {}
             content = data.get("content", "")
@@ -40,7 +52,7 @@ def note_handler(subpath):
             )
             return jsonify({"status": "success", "path": path})
 
-        # GET: Busca o conteúdo exclusivo daquele path
+        # GET: Busca o conteúdo da nota
         content = ""
         note = notes_collection.find_one({"path": path})
         if note:
@@ -51,5 +63,5 @@ def note_handler(subpath):
     except Exception as e:
         return jsonify({
             "status": "error", 
-            "message": f"Erro na conexão com MongoDB: {str(e)}"
+            "message": f"Erro: {str(e)}"
         }), 500
