@@ -34,13 +34,23 @@ def note_handler(subpath):
             )
             return jsonify({"status": "success"})
 
-        # Retornar JSON com o texto da nota (GET via fetch)
+        # Listar todas as sub-URLs existentes (GET ?action=list)
+        if request.args.get("action") == "list":
+            # Busca caminhos não vazios e ordena alfabeticamente
+            cursor = notes_collection.find(
+                {"path": {"$ne": ""}},
+                {"_id": 0, "path": 1}
+            ).sort("path", 1)
+            paths = [doc["path"] for doc in cursor if doc.get("path")]
+            return jsonify({"status": "success", "paths": paths})
+
+        # Retornar JSON com o texto da nota (GET ?action=get)
         if request.args.get("action") == "get":
             note = notes_collection.find_one({"path": path})
             content = note.get("content", "") if note else ""
             return jsonify({"status": "success", "content": content})
 
-        # Renderizar o HTML base para qualquer rota
+        # Renderizar o HTML base
         return render_template("index.html")
 
     except Exception as e:

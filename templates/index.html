@@ -3,15 +3,84 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dontpad</title>
+    <title>Padeas</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body { height: 100%; width: 100%; overflow: hidden; font-family: monospace; }
+        html, body {
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+            font-family: monospace;
+            display: flex;
+            background-color: #fcfcfc;
+        }
+
+        /* Barra lateral à esquerda */
+        #sidebar {
+            width: 220px;
+            height: 100vh;
+            background-color: #f3f3f3;
+            border-right: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            transition: width 0.2s, padding 0.2s;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        #sidebar.collapsed {
+            width: 0;
+            border-right: none;
+        }
+        #sidebar-header {
+            padding: 14px 15px;
+            font-size: 13px;
+            font-weight: bold;
+            color: #555;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            white-space: nowrap;
+        }
+        #links-list {
+            list-style: none;
+            overflow-y: auto;
+            flex: 1;
+            padding: 8px 0;
+        }
+        #links-list li a {
+            display: block;
+            padding: 7px 15px;
+            font-size: 13px;
+            color: #444;
+            text-decoration: none;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            transition: background-color 0.15s;
+        }
+        #links-list li a:hover {
+            background-color: #e6e6e6;
+            color: #000;
+        }
+        #links-list li a.active {
+            background-color: #e0e0e0;
+            font-weight: bold;
+            color: #000;
+            border-left: 3px solid #333;
+        }
+
+        /* Área principal do editor */
+        #main {
+            flex: 1;
+            position: relative;
+            height: 100vh;
+        }
         #notepad {
             width: 100%;
-            height: 100vh;
+            height: 100%;
             padding: 20px;
-            padding-right: 90px; /* Evita que o texto fique por baixo do botão */
+            padding-top: 48px;
             font-size: 16px;
             line-height: 1.5;
             border: none;
@@ -20,28 +89,36 @@
             background-color: #fcfcfc;
             color: #222;
         }
-        #copy-btn {
-            position: fixed;
-            top: 12px;
-            right: 15px;
+
+        /* Botões superiores discretos */
+        .top-btn {
+            position: absolute;
+            top: 10px;
             padding: 5px 10px;
             font-family: monospace;
             font-size: 12px;
             color: #666;
-            background-color: rgba(240, 240, 240, 0.7);
+            background-color: rgba(240, 240, 240, 0.8);
             border: 1px solid #ddd;
             border-radius: 4px;
             cursor: pointer;
-            opacity: 0.5;
-            transition: opacity 0.2s, background-color 0.2s, color 0.2s;
+            opacity: 0.6;
+            transition: opacity 0.2s, background-color 0.2s;
+            z-index: 10;
         }
-        #copy-btn:hover {
+        .top-btn:hover {
             opacity: 1;
             background-color: #eee;
             color: #222;
         }
+        #toggle-sidebar {
+            left: 15px;
+        }
+        #copy-btn {
+            right: 15px;
+        }
         #status {
-            position: fixed;
+            position: absolute;
             bottom: 10px;
             right: 15px;
             font-size: 12px;
@@ -51,32 +128,78 @@
     </style>
 </head>
 <body>
-    <button id="copy-btn" title="Copiar todo o texto">Copiar</button>
-    <textarea id="notepad" placeholder="Carregando..."></textarea>
-    <div id="status">Carregando...</div>
+    <aside id="sidebar">
+        <div id="sidebar-header">
+            <span>Páginas</span>
+            <a href="/" style="text-decoration:none; color:#666; font-weight:normal; font-size:11px;" title="Ir para raiz">/raiz</a>
+        </div>
+        <ul id="links-list"></ul>
+    </aside>
+
+    <main id="main">
+        <button id="toggle-sidebar" class="top-btn" title="Mostrar/Ocultar menu lateral">☰</button>
+        <button id="copy-btn" class="top-btn" title="Copiar todo o texto">Copiar</button>
+        <textarea id="notepad" placeholder="Carregando..."></textarea>
+        <div id="status">Carregando...</div>
+    </main>
 
     <script>
         const textarea = document.getElementById('notepad');
         const status = document.getElementById('status');
         const copyBtn = document.getElementById('copy-btn');
+        const linksList = document.getElementById('links-list');
+        const sidebar = document.getElementById('sidebar');
+        const toggleBtn = document.getElementById('toggle-sidebar');
+
         const currentPath = window.location.pathname.replace(/^\/+|\/+$/g, '');
-        document.title = `Dontpad - /${currentPath}`;
+        document.title = currentPath ? `Padeas - /${currentPath}` : 'Padeas';
         let timeout = null;
 
-        // 1. Busca o conteúdo específico da URL atual ao abrir a página
+        // Alternar visibilidade da barra lateral
+        toggleBtn.addEventListener('click', () => {
+            sidebar.classList.toggle('collapsed');
+        });
+
+        // 1. Carrega a lista de sub-URLs para a barra lateral
+        function loadSidebarLinks() {
+            fetch('/api/index?action=list')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        linksList.innerHTML = '';
+                        const paths = new Set(data.paths);
+                        
+                        // Garante que a rota atual apareça na lista mesmo antes de digitar
+                        if (currentPath) paths.add(currentPath);
+
+                        Array.from(paths).sort().forEach(p => {
+                            const li = document.createElement('li');
+                            const a = document.createElement('a');
+                            a.href = `/${p}`;
+                            a.textContent = `/${p}`;
+                            if (p === currentPath) a.classList.add('active');
+                            li.appendChild(a);
+                            linksList.appendChild(li);
+                        });
+                    }
+                });
+        }
+
+        // 2. Busca o conteúdo específico da URL atual ao abrir a página
         fetch(`/api/index?action=get&path=${encodeURIComponent(currentPath)}`)
             .then(res => res.json())
             .then(data => {
                 textarea.value = data.content || '';
                 textarea.placeholder = 'Digite seu texto aqui...';
                 status.innerText = 'Salvo';
+                loadSidebarLinks();
             })
             .catch(() => {
                 textarea.placeholder = 'Digite seu texto aqui...';
                 status.innerText = 'Erro ao carregar';
             });
 
-        // 2. Salva automaticamente após 500ms sem digitar
+        // 3. Salva automaticamente após 500ms sem digitar
         textarea.addEventListener('input', () => {
             status.innerText = 'Salvando...';
             clearTimeout(timeout);
@@ -91,28 +214,30 @@
             })
             .then(res => res.json())
             .then(data => {
-                status.innerText = data.status === 'success' ? 'Salvo' : 'Erro ao salvar!';
+                if (data.status === 'success') {
+                    status.innerText = 'Salvo';
+                    loadSidebarLinks(); // Atualiza a sidebar caso seja uma página nova
+                } else {
+                    status.innerText = 'Erro ao salvar!';
+                }
             })
             .catch(() => {
                 status.innerText = 'Erro ao salvar!';
             });
         }
 
-        // 3. Copiar conteúdo para a área de transferência
+        // 4. Copiar conteúdo para a área de transferência
         copyBtn.addEventListener('click', () => {
             if (!textarea.value) return;
-
             navigator.clipboard.writeText(textarea.value).then(() => {
                 const originalText = copyBtn.innerText;
                 copyBtn.innerText = 'Copiado!';
                 copyBtn.style.opacity = '1';
-                
                 setTimeout(() => {
                     copyBtn.innerText = originalText;
                     copyBtn.style.opacity = '';
                 }, 1500);
             }).catch(() => {
-                // Fallback para navegadores sem suporte à Clipboard API
                 textarea.select();
                 document.execCommand('copy');
             });
