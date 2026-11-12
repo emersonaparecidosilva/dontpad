@@ -1,5 +1,4 @@
 import os
-from urllib.parse import unquote
 from flask import Flask, render_template, request, jsonify
 from pymongo import MongoClient
 
@@ -14,54 +13,35 @@ def get_db_collection():
     db = client["dontpad_db"]
     return db["notes"]
 
-def get_real_path(subpath):
-    # 1. Prioriza o parâmetro ?path= enviado explicitamente
-    if "path" in request.args:
-        return unquote(request.args.get("path", "")).strip("/")
-    
-    # 2. Lê os cabeçalhos internos da Vercel que guardam a URL original
-    for header in ["x-vercel-original-path", "x-invoke-path", "x-matched-path"]:
-        val = request.headers.get(header)
-        if val and not val.startswith("/api/"):
-            return unquote(val.split("?")[0]).strip("/")
-            
-    return unquote(subpath).strip("/")
-
 @app.route("/", defaults={"subpath": ""}, methods=["GET", "POST"])
 @app.route("/<path:subpath>", methods=["GET", "POST"])
 def note_handler(subpath):
     try:
         notes_collection = get_db_collection()
         if notes_collection is None:
-            return jsonify({
-                "status": "error", 
-                "message": "MONGO_URI não configurada."
-            }), 500
+            return jsonify({"status": "error", "message": "MONGO_URI não configurada."}), 500
 
-        path = get_real_path(subpath)
+        path = request.args.get("path", subpath).strip("/")
 
-        # POST: Salva ou atualiza a nota daquele caminho
+        # Salvar nota (POST)
         if request.method == "POST":
             data = request.get_json() or {}
             content = data.get("content", "")
-            
             notes_collection.update_one(
                 {"path": path},
                 {"$set": {"content": content}},
                 upsert=True
             )
-            return jsonify({"status": "success", "path": path})
+            return jsonify({"status": "success"})
 
-        # GET: Busca o conteúdo da nota
-        content = ""
-        note = notes_collection.find_one({"path": path})
-        if note:
-            content = note.get("content", "")
+        # Retornar JSON com o texto da nota (GET via fetch)
+        if request.args.get("action") == "get":
+            note = notes_collection.find_one({"path": path})
+            content = note.get("content", "") if note else ""
+            return jsonify({"status": "success", "content": content})
 
-        return render_template("index.html", path=path, content=content)
+        # Renderizar o HTML base para qualquer rota
+        return render_template("index.html")
 
     except Exception as e:
-        return jsonify({
-            "status": "error", 
-            "message": f"Erro: {str(e)}"
-        }), 500
+        return jsonify({"status": "error", "message": str(e)}), 500

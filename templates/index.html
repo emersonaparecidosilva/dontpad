@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dontpad - /{{ path }}</title>
+    <title>Dontpad</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { height: 100%; width: 100%; overflow: hidden; font-family: monospace; }
@@ -30,14 +30,30 @@
     </style>
 </head>
 <body>
-    <textarea id="notepad" placeholder="Digite seu texto aqui...">{{ content }}</textarea>
-    <div id="status">Salvo</div>
+    <textarea id="notepad" placeholder="Carregando..."></textarea>
+    <div id="status">Carregando...</div>
 
     <script>
         const textarea = document.getElementById('notepad');
         const status = document.getElementById('status');
+        const currentPath = window.location.pathname.replace(/^\/+|\/+$/g, '');
+        document.title = `Dontpad - /${currentPath}`;
         let timeout = null;
 
+        // 1. Busca o conteúdo específico da URL atual ao abrir a página
+        fetch(`/api/index?action=get&path=${encodeURIComponent(currentPath)}`)
+            .then(res => res.json())
+            .then(data => {
+                textarea.value = data.content || '';
+                textarea.placeholder = 'Digite seu texto aqui...';
+                status.innerText = 'Salvo';
+            })
+            .catch(() => {
+                textarea.placeholder = 'Digite seu texto aqui...';
+                status.innerText = 'Erro ao carregar';
+            });
+
+        // 2. Salva automaticamente após 500ms sem digitar
         textarea.addEventListener('input', () => {
             status.innerText = 'Salvando...';
             clearTimeout(timeout);
@@ -45,19 +61,14 @@
         });
 
         function saveContent() {
-            const currentPath = encodeURIComponent(window.location.pathname);
-            fetch(`/?path=${currentPath}`, {
+            fetch(`/api/index?path=${encodeURIComponent(currentPath)}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ content: textarea.value })
             })
             .then(res => res.json())
             .then(data => {
-                if(data.status === 'success') {
-                    status.innerText = 'Salvo';
-                } else {
-                    status.innerText = 'Erro ao salvar!';
-                }
+                status.innerText = data.status === 'success' ? 'Salvo' : 'Erro ao salvar!';
             })
             .catch(() => {
                 status.innerText = 'Erro ao salvar!';
