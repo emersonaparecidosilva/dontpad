@@ -13,8 +13,8 @@ def get_db_collection():
     db = client["dontpad_db"]
     return db["notes"]
 
-@app.route("/", defaults={"subpath": ""}, methods=["GET", "POST"])
-@app.route("/<path:subpath>", methods=["GET", "POST"])
+@app.route("/", defaults={"subpath": ""}, methods=["GET", "POST", "DELETE"])
+@app.route("/<path:subpath>", methods=["GET", "POST", "DELETE"])
 def note_handler(subpath):
     try:
         notes_collection = get_db_collection()
@@ -23,8 +23,16 @@ def note_handler(subpath):
 
         path = request.args.get("path", subpath).strip("/")
 
+        # Excluir uma nota (DELETE ou GET ?action=delete)
+        if request.method == "DELETE" or request.args.get("action") == "delete":
+            if path and path != "api/index":
+                notes_collection.delete_one({"path": path})
+            return jsonify({"status": "success"})
+
         # Salvar nota (POST)
         if request.method == "POST":
+            if path == "api/index":
+                return jsonify({"status": "ignored"})
             data = request.get_json() or {}
             content = data.get("content", "")
             notes_collection.update_one(
@@ -34,17 +42,16 @@ def note_handler(subpath):
             )
             return jsonify({"status": "success"})
 
-        # Listar todas as sub-URLs existentes (GET ?action=list)
+        # Listar todas as sub-URLs existentes (ignora raiz e api/index)
         if request.args.get("action") == "list":
-            # Busca caminhos não vazios e ordena alfabeticamente
             cursor = notes_collection.find(
-                {"path": {"$ne": ""}},
+                {"path": {"$nin": ["", "api/index"]}},
                 {"_id": 0, "path": 1}
             ).sort("path", 1)
             paths = [doc["path"] for doc in cursor if doc.get("path")]
             return jsonify({"status": "success", "paths": paths})
 
-        # Retornar JSON com o texto da nota (GET ?action=get)
+        # Retornar JSON com o texto da nota
         if request.args.get("action") == "get":
             note = notes_collection.find_one({"path": path})
             content = note.get("content", "") if note else ""

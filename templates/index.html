@@ -48,26 +48,53 @@
             flex: 1;
             padding: 8px 0;
         }
+        #links-list li {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-right: 8px;
+            transition: background-color 0.15s;
+        }
+        #links-list li:hover {
+            background-color: #e6e6e6;
+        }
+        #links-list li.active-item {
+            background-color: #e0e0e0;
+            border-left: 3px solid #333;
+        }
         #links-list li a {
+            flex: 1;
             display: block;
-            padding: 7px 15px;
+            padding: 7px 10px 7px 15px;
             font-size: 13px;
             color: #444;
             text-decoration: none;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
-            transition: background-color 0.15s;
         }
-        #links-list li a:hover {
-            background-color: #e6e6e6;
-            color: #000;
-        }
-        #links-list li a.active {
-            background-color: #e0e0e0;
+        #links-list li.active-item a {
             font-weight: bold;
             color: #000;
-            border-left: 3px solid #333;
+        }
+        .del-btn {
+            background: none;
+            border: none;
+            color: #999;
+            font-family: monospace;
+            font-size: 14px;
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 3px;
+            opacity: 0;
+            transition: opacity 0.15s, color 0.15s, background-color 0.15s;
+        }
+        #links-list li:hover .del-btn {
+            opacity: 1;
+        }
+        .del-btn:hover {
+            color: #d9534f;
+            background-color: rgba(217, 83, 79, 0.12);
         }
 
         /* Área principal do editor */
@@ -111,12 +138,8 @@
             background-color: #eee;
             color: #222;
         }
-        #toggle-sidebar {
-            left: 15px;
-        }
-        #copy-btn {
-            right: 15px;
-        }
+        #toggle-sidebar { left: 15px; }
+        #copy-btn { right: 15px; }
         #status {
             position: absolute;
             bottom: 10px;
@@ -155,10 +178,28 @@
         document.title = currentPath ? `Padeas - /${currentPath}` : 'Padeas';
         let timeout = null;
 
-        // Alternar visibilidade da barra lateral
         toggleBtn.addEventListener('click', () => {
             sidebar.classList.toggle('collapsed');
         });
+
+        // Excluir uma página
+        function deletePage(pathToDelete) {
+            if (!confirm(`Deseja excluir permanentemente a página "/${pathToDelete}"?`)) return;
+
+            fetch(`/api/index?action=delete&path=${encodeURIComponent(pathToDelete)}`, {
+                method: 'DELETE'
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    if (pathToDelete === currentPath) {
+                        window.location.href = '/';
+                    } else {
+                        loadSidebarLinks();
+                    }
+                }
+            });
+        }
 
         // 1. Carrega a lista de sub-URLs para a barra lateral
         function loadSidebarLinks() {
@@ -169,16 +210,31 @@
                         linksList.innerHTML = '';
                         const paths = new Set(data.paths);
                         
-                        // Garante que a rota atual apareça na lista mesmo antes de digitar
-                        if (currentPath) paths.add(currentPath);
+                        if (currentPath && currentPath !== 'api/index') {
+                            paths.add(currentPath);
+                        }
 
                         Array.from(paths).sort().forEach(p => {
                             const li = document.createElement('li');
+                            if (p === currentPath) li.classList.add('active-item');
+
                             const a = document.createElement('a');
                             a.href = `/${p}`;
                             a.textContent = `/${p}`;
-                            if (p === currentPath) a.classList.add('active');
+                            a.title = `/${p}`;
+
+                            const delBtn = document.createElement('button');
+                            delBtn.className = 'del-btn';
+                            delBtn.textContent = '×';
+                            delBtn.title = `Excluir /${p}`;
+                            delBtn.onclick = (e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                deletePage(p);
+                            };
+
                             li.appendChild(a);
+                            li.appendChild(delBtn);
                             linksList.appendChild(li);
                         });
                     }
@@ -216,7 +272,7 @@
             .then(data => {
                 if (data.status === 'success') {
                     status.innerText = 'Salvo';
-                    loadSidebarLinks(); // Atualiza a sidebar caso seja uma página nova
+                    loadSidebarLinks();
                 } else {
                     status.innerText = 'Erro ao salvar!';
                 }
